@@ -29,6 +29,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
     yyyy.mm.dd | Version | Author         | Changes
     -----------+---------+----------------+-------------------------
     2017.01.06 |  1.0    | Ferenc Toth    | Created 
+    2021.06.02 |  1.1    | Ferenc Toth    | bug fixes ( a lot ! :-( ) Thanks to alois-vogl and izh1 for their help!
 
 ***************************************************************************************** */
 
@@ -55,8 +56,8 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
     V_NEXT_WEEK_DAY      number;
     V_NEXT_MONTH         number;
     V_NEXT_YEAR          number;
-    V_1_HOUR             number := 1/24;
-    V_N                  number;
+
+
 
     ---------------------------------------------------------------------------------
     function GET_PART( I_STRING in varchar, I_POS in number ) return varchar2 is
@@ -71,6 +72,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         L_PART := substr( I_STRING, L_START + 1, instr( I_STRING, ' ', L_START + 1 ) - L_START - 1 );
         return nvl( L_PART, '*' );
     end;
+
 
     ---------------------------------------------------------------------------------
     function GET_NUMBER( I_STRING in varchar, I_FROM in number, I_DIRECTION in number ) return number is
@@ -94,6 +96,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         end if;
         return to_number( L_STRING );
     end;
+
 
     ---------------------------------------------------------------------------------
     function GET_PATTERN( I_STRING in varchar, I_FROM in number, I_TO in number ) return T_PATTERN is
@@ -170,6 +173,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         return L_PATTERN;
     end;
 
+
     ---------------------------------------------------------------------------------
     function GET_NEXT_DATE return date is
     ---------------------------------------------------------------------------------
@@ -184,6 +188,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         return null;
     end;
 
+
     ---------------------------------------------------------------------------------
     procedure SET_NEXT_PARTS is
     ---------------------------------------------------------------------------------
@@ -196,6 +201,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         V_NEXT_MONTH     := to_number( to_char( V_NEXT_DATE, 'MM'   ) );
         V_NEXT_YEAR      := to_number( to_char( V_NEXT_DATE, 'YYYY' ) );
     end;
+
 
     ---------------------------------------------------------------------------------
     function FULL_ZERO( I_PATTERN in T_PATTERN ) return boolean is
@@ -211,6 +217,7 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         return true;
     end;
 
+
     ---------------------------------------------------------------------------------
     function GET_PATTERN_STRING( I_PATTERN in T_PATTERN) return varchar2 is
     ---------------------------------------------------------------------------------
@@ -222,19 +229,102 @@ create or replace function  F_CRON_NEXT_DATE ( I_CRON_TAB  in varchar2
         end loop;
         return L_STRING;
     end;
-    ---------------------------------------------------------------------------------
+
 
     ---------------------------------------------------------------------------------
-    procedure DEBUG is
+    procedure DEBUG( I_TITLE in varchar2)  is
     ---------------------------------------------------------------------------------
     begin
+        dbms_output.put_line( I_TITLE );
+        dbms_output.put_line( '-------------------------------------------' );        
         dbms_output.put_line('YY:' ||V_NEXT_YEAR      );
         dbms_output.put_line('MM:' ||V_NEXT_MONTH     );
         dbms_output.put_line('DD:' ||V_NEXT_MONTH_DAY );
         dbms_output.put_line('WD:' ||V_NEXT_WEEK_DAY  );
         dbms_output.put_line('HH:' ||V_NEXT_HOUR      );
         dbms_output.put_line('MI:' ||V_NEXT_MINUTE    );
+        dbms_output.put_line(' ');
     end;
+
+
+    ---------------------------------------------------------------------------------
+    procedure SET_NEXT_MINUTE is        
+    ---------------------------------------------------------------------------------
+    begin    
+        loop
+            exit when V_MINUTE_PATTERN ( V_NEXT_MINUTE ) = 1;   -- there must be at least one in the pattern!
+            V_NEXT_MINUTE := V_NEXT_MINUTE + 1;
+            if V_NEXT_MINUTE = 60 then
+                V_NEXT_MINUTE    := 0;
+                V_NEXT_DATE      := GET_NEXT_DATE + 1/24;
+                SET_NEXT_PARTS;
+            end if;
+        end loop;
+        V_NEXT_DATE := GET_NEXT_DATE; 
+        SET_NEXT_PARTS;
+        --DEBUG('SET_NEXT_MINUTE');
+    end;    
+
+
+    ---------------------------------------------------------------------------------
+    procedure SET_NEXT_HOUR is          
+    ---------------------------------------------------------------------------------     
+    begin
+        loop
+            exit when V_HOUR_PATTERN ( V_NEXT_HOUR ) = 1;       -- there must be at least one in the pattern!
+            V_NEXT_HOUR   := V_NEXT_HOUR + 1;
+            if V_NEXT_HOUR = 24 then
+                V_NEXT_MINUTE    := 0;
+                V_NEXT_HOUR      := 0;
+                V_NEXT_DATE      := GET_NEXT_DATE + 1;
+                SET_NEXT_PARTS;
+            end if;
+        end loop;
+        V_NEXT_DATE := GET_NEXT_DATE; 
+        SET_NEXT_PARTS;
+        --DEBUG('SET_NEXT_HOUR');
+    end;    
+
+
+    ---------------------------------------------------------------------------------
+    procedure SET_NEXT_DAY is
+    ---------------------------------------------------------------------------------
+    -- find the first "1" day, both month and week pattern:
+    begin
+        loop
+            exit when V_MONTH_DAY_PATTERN( V_NEXT_MONTH_DAY ) = 1 and V_WEEK_DAY_PATTERN( V_NEXT_WEEK_DAY ) = 1;
+            V_NEXT_MINUTE    := 0;
+            V_NEXT_HOUR      := 0;
+            V_NEXT_DATE      := GET_NEXT_DATE + 1;
+            SET_NEXT_PARTS;
+        end loop;
+        V_NEXT_DATE := GET_NEXT_DATE; 
+        SET_NEXT_PARTS;
+        --DEBUG('SET_NEXT_MONTH_DAY');
+    end;
+
+
+    ---------------------------------------------------------------------------------
+    procedure SET_NEXT_MONTH is             
+    ---------------------------------------------------------------------------------
+    -- find the first "1" month pattern:
+    begin    
+        loop
+            exit when V_MONTH_PATTERN ( V_NEXT_MONTH ) = 1;
+            V_NEXT_MONTH     := V_NEXT_MONTH + 1;  -- next month
+            V_NEXT_MINUTE    := 0;
+            V_NEXT_HOUR      := 0;
+            V_NEXT_MONTH_DAY := 1;
+            if V_NEXT_MONTH = 13 then
+                V_NEXT_MONTH := 1;
+                V_NEXT_YEAR  := V_NEXT_YEAR + 1;   
+            end if;
+        end loop;
+        V_NEXT_DATE := GET_NEXT_DATE; 
+        SET_NEXT_PARTS;
+        --DEBUG('SET_NEXT_MONTH');
+    end;
+
 
 
 begin
@@ -263,9 +353,10 @@ begin
 
     V_NEXT_DATE      := I_BASE_DATE;
     SET_NEXT_PARTS;
+    --  DEBUG('INIT');
     
     /*  debug   
-    dbms_output.put_line('DATE:'||to_char(V_NEXT_DATE, 'yyyy.mm.dd hh24:mi') );
+    dbms_output.put_line('DATE: '||to_char(V_NEXT_DATE, 'yyyy.mm.dd hh24:mi') );
     dbms_output.put_line('CT MI:'||V_CRON_MINUTE    );
     dbms_output.put_line('CT HH:'||V_CRON_HOUR      );
     dbms_output.put_line('CT DD:'||V_CRON_MONTH_DAY );
@@ -276,7 +367,7 @@ begin
     dbms_output.put_line('PA HH:'||GET_PATTERN_STRING( V_HOUR_PATTERN      ) );
     dbms_output.put_line('PA MI:'||GET_PATTERN_STRING( V_MINUTE_PATTERN    ) );
     dbms_output.put_line('PA WD:'||GET_PATTERN_STRING( V_WEEK_DAY_PATTERN  ) );
-    debug end */
+    debug end  */
 
     -- check the patterns
     if FULL_ZERO ( V_MINUTE_PATTERN    ) or
@@ -287,78 +378,35 @@ begin
         return null;   -- something is wrong
     end if;
 
-
-    -------------------------------------------
-    -- find the first "1" month pattern:
-    -------------------------------------------
-    V_N := V_MONTH_PATTERN.count;
+    -- find the right date and time
     loop
-        exit when V_MONTH_PATTERN ( V_NEXT_MONTH ) = 1 or V_N = 0;
-        V_NEXT_MONTH     := V_NEXT_MONTH + 1;  -- next month
-        -- if the month has changed then we have to reset the other values
-        V_NEXT_MINUTE    := 0;
-        V_NEXT_HOUR      := 0;
-        V_NEXT_MONTH_DAY := 1;
-        V_N := V_N - 1;
-        if V_NEXT_MONTH = 13 then
-            V_NEXT_MONTH := 1;
-            V_NEXT_YEAR  := V_NEXT_YEAR + 1;   
-        end if;
+    
+        exit when (     V_MINUTE_PATTERN    ( V_NEXT_MINUTE    ) = 1
+                    and V_HOUR_PATTERN      ( V_NEXT_HOUR      ) = 1
+                    and V_MONTH_DAY_PATTERN ( V_NEXT_MONTH_DAY ) = 1 
+                    and V_WEEK_DAY_PATTERN  ( V_NEXT_WEEK_DAY  ) = 1   
+                    and V_MONTH_PATTERN     ( V_NEXT_MONTH     ) = 1
+                  )
+               or V_NEXT_DATE - I_BASE_DATE > 4 * 365;    -- 4 years
+
+        SET_NEXT_MINUTE;
+        SET_NEXT_HOUR;
+        SET_NEXT_DAY;
+        SET_NEXT_MONTH;
+
     end loop;
-    V_NEXT_DATE     := GET_NEXT_DATE; 
-    V_NEXT_WEEK_DAY := to_number( to_char( V_NEXT_DATE, 'D' ) );
-    -- DEBUG;
-
-
-    -------------------------------------------------------------
-    -- find the first "1" day, both month and week pattern:
-    -------------------------------------------------------------
-    loop
-        exit when V_MONTH_DAY_PATTERN( V_NEXT_MONTH_DAY ) = 1 and V_WEEK_DAY_PATTERN( V_NEXT_WEEK_DAY ) = 1;
-        V_NEXT_DATE      := V_NEXT_DATE + 1;   -- next day
-        V_NEXT_MINUTE    := 0;
-        V_NEXT_HOUR      := 0;
-        V_NEXT_MONTH_DAY := to_number( to_char( V_NEXT_DATE, 'DD'   ) );
-        V_NEXT_WEEK_DAY  := to_number( to_char( V_NEXT_DATE, 'D'    ) );
-        V_NEXT_MONTH     := to_number( to_char( V_NEXT_DATE, 'MM'   ) );
-        V_NEXT_YEAR      := to_number( to_char( V_NEXT_DATE, 'YYYY' ) );
-    end loop;
-    -- DEBUG;
-
-    -------------------------------------------
-    -- find the first "1" hour pattern:
-    -------------------------------------------
-    V_N := V_HOUR_PATTERN.count;
-    loop
-        exit when V_HOUR_PATTERN ( V_NEXT_HOUR ) = 1 or V_N = 0;
-        V_NEXT_HOUR   := V_NEXT_HOUR + 1;
-        V_NEXT_MINUTE := 0;
-        V_N := V_N - 1;
-        if V_NEXT_HOUR = 24 then
-            V_NEXT_HOUR := 0;
-            V_NEXT_DATE := GET_NEXT_DATE + 1;   
-        end if;
-    end loop;
-    V_NEXT_DATE   := GET_NEXT_DATE; 
-    -- DEBUG;
-
-    -------------------------------------------
-    -- find the first "1" minute pattern:
-    -------------------------------------------
-    V_N := V_MINUTE_PATTERN.count;
-    loop
-        exit when V_MINUTE_PATTERN ( V_NEXT_MINUTE ) = 1 or V_N = 0;
-        V_NEXT_MINUTE := V_NEXT_MINUTE + 1;
-        V_N := V_N - 1;
-        if V_NEXT_MINUTE = 60 then
-            V_NEXT_MINUTE := 0;
-            V_NEXT_DATE   := GET_NEXT_DATE + V_1_HOUR; 
-        end if;
-    end loop;
-    V_NEXT_DATE   := GET_NEXT_DATE; 
-    -- DEBUG;
-
-    return V_NEXT_DATE;
+    
+    -- found?
+    if     V_MINUTE_PATTERN    ( V_NEXT_MINUTE    ) = 1
+       and V_HOUR_PATTERN      ( V_NEXT_HOUR      ) = 1
+       and V_MONTH_DAY_PATTERN ( V_NEXT_MONTH_DAY ) = 1 
+       and V_WEEK_DAY_PATTERN  ( V_NEXT_WEEK_DAY  ) = 1   
+       and V_MONTH_PATTERN     ( V_NEXT_MONTH     ) = 1
+    then 
+        return V_NEXT_DATE;
+    else    
+        return null;    -- something is wrong
+    end if;
 
 exception when others then
     return null;    -- something is wrong
